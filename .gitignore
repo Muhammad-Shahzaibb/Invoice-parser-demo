@@ -1,0 +1,62 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# -------------------------
+# Virtual Environments
+# -------------------------
+venv/
+.env/
+.env.*
+pip-wheel-metadata/
+
+# -------------------------
+# Logs & runtime files
+# -------------------------
+*.log
+*.pid
+
+# -------------------------
+# IDEs / Editors
+# -------------------------
+.vscode/
+.idea/
+*.iml
+
+# -------------------------
+# OS files
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Docker
+# -------------------------
+*.dockerfile
+docker-compose.override.yml
+
+# -------------------------
+# PyMuPDF / OCR temp files
+# -------------------------
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.tiff
+
+# -------------------------
+# Cache / Temp
+# -------------------------
+.cache/
+.tmp/
+
+.env
+.env.*
+

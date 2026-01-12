@@ -1,0 +1,10 @@
+streamlit
+PyMuPDF
+Pillow
+groq
+numpy
+fastapi
+uvicorn[standard]
+python-dotenv
+python-multipart
+
