@@ -3,6 +3,7 @@ import asyncio
 import json
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from Invoice_extractor import (
     pdf_to_base64_images,
@@ -11,6 +12,13 @@ from Invoice_extractor import (
 
 app = FastAPI(title="Invoice Extractor API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 async def extract_page_async(page_index: int, img_base64: str):
     """
