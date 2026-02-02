@@ -223,9 +223,9 @@ Return the transformed JSON object only."""
                 if item["poNumber"] == ("020007108" or "3020007108"):
                     item["poNumber"] = "3020006451"
                 if item["poNumber"] == ("3030003277"):
-                    item["poNumber"] = "3030003044"
+                    item["poNumber"] = "3030003046"
                 if item["poNumber"] == ("3030003358"):
-                    item["poNumber"] = "3030003045"
+                    item["poNumber"] = "3030003047"
         
         # Ensure fixed values are correct
         result["companyCode"] = "2000"
