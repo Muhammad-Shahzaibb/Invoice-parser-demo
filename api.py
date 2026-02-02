@@ -107,3 +107,23 @@ async def extract_and_transform_invoice(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sap-data")
+async def sap_data_only(file: UploadFile = File(...)):
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    try:
+        pdf_bytes = await file.read()
+
+        # Run extraction + transformation
+        result = await asyncio.to_thread(extract_and_transform, pdf_bytes)
+
+        if "final_output" not in result:
+            raise HTTPException(status_code=500, detail="Transformation failed")
+
+        # ✅ Return ONLY final_output
+        return JSONResponse(content=result["final_output"])
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
