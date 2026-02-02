@@ -7,6 +7,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=False,      # NEVER true in production
-        workers=4,         # scale by CPU cores
+        workers=1,         # scale by CPU cores
         log_level="info"
     )
