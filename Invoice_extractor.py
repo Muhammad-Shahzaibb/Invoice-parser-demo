@@ -220,12 +220,15 @@ Return the transformed JSON object only."""
             for item in result["item"]:
                 if not item.get("sheetNo") or item.get("sheetNo") == "":
                     item["sheetNo"] = str(random.randint(1000000000, 9999999999))
-                if item["poNumber"] == ("020007108" or "3020007108"):
-                    item["poNumber"] = "3020006451"
-                if item["poNumber"] == ("3030003277"):
-                    item["poNumber"] = "3030003046"
-                if item["poNumber"] == ("3030003358"):
-                    item["poNumber"] = "3030003047"
+                if item["poNumber"] == ("020007108"):
+                    item["poNumber"] == "3020007108"
+                # if item["poNumber"] == ("020007108" or "3020007108"):
+                #     item["poNumber"] = "3160000028"
+                # if item["poNumber"] == ("3030003358"):
+                #     item["poNumber"] = "3160000027"
+                # if item["poNumber"] == ("3030003277"):
+                #     item["poNumber"] = "3160000026"
+                
         
         # Ensure fixed values are correct
         result["companyCode"] = "2000"
