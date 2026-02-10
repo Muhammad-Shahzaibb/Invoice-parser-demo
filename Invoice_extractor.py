@@ -343,6 +343,24 @@ def merge_document_pages(pages: list) -> dict:
     return merged
 
 
+def remove_amount_separators(result: dict) -> dict:
+    """
+    Remove comma separators from grossAmount and itemAmount fields.
+    Converts amounts like "23,000" to "23000"
+    """
+    # Remove comma from grossAmount
+    if "grossAmount" in result and result["grossAmount"]:
+        result["grossAmount"] = str(result["grossAmount"]).replace(",", "")
+    
+    # Remove comma from itemAmount in each item
+    if "item" in result and isinstance(result["item"], list):
+        for item in result["item"]:
+            if "itemAmount" in item and item["itemAmount"]:
+                item["itemAmount"] = str(item["itemAmount"]).replace(",", "")
+    
+    return result
+
+
 def extract_and_transform(pdf_bytes):
     """
     Complete pipeline (2 Layers):
@@ -354,6 +372,9 @@ def extract_and_transform(pdf_bytes):
     
     # Layer 2: Transform extracted data to final format using Groq
     final_json = transform_to_final_json(extracted_data)
+    
+    # Layer 3: Clean up amount separators
+    final_json = remove_amount_separators(final_json)
     
     return {
         "raw_extraction": extracted_data,
