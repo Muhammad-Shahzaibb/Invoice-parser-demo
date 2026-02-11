@@ -7,7 +7,7 @@ import logging
 import random
 from dotenv import load_dotenv
 from groq import Groq
-from huggingface_hub import InferenceClient
+from openai import OpenAI
 
 # -------------------------
 # Setup logging
@@ -20,16 +20,15 @@ logger = logging.getLogger(__name__)
 # -------------------------
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-HF_TOKEN = os.getenv("HF_TOKEN") # Ensure this is in your .env
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in .env file!")
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN not found in .env file!")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY not found in .env file!")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
-# Using the Inference Client instead of local model
-hf_client = InferenceClient(api_key=HF_TOKEN)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 MAX_PAGES = int(os.getenv("MAX_PAGES", 5))
 
@@ -41,7 +40,7 @@ def encode_image(image_bytes):
 
 def extract_invoice_data(image_bytes):
     """
-    Extract data from a single page image using Hugging Face Inference API (Qwen3-VL).
+    Extract data from a single page image using OpenAI GPT-4o Vision API.
     """
     prompt = """You are an expert invoice OCR and document understanding AI.
 Extract all visible information from this image and categorize it by document type.
@@ -74,45 +73,48 @@ Return the JSON object only."""
         # Convert image to base64 for API transmission
         base64_image = encode_image(image_bytes)
         
-        # Call the HF Inference API
-
-        response_text = ""
-        for message in hf_client.chat_completion(
-            # model="Qwen/Qwen3-VL-8B-Instruct",
-            model="Qwen/Qwen3-VL-32B-Instruct", 
+        # Call the OpenAI Vision API
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                        },
-                    ],
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
                 }
             ],
             max_tokens=4096,
-            stream=False,
-        ).choices:
-            response_text = message.message.content
+            temperature=0.1
+        )
+        
+        response_text = response.choices[0].message.content
 
         # Clean response and extract JSON
-        response = response_text.strip()
-        if response.startswith("```json"):
-            response = response[7:]
-        elif response.startswith("```"):
-            response = response[3:]
-        if response.endswith("```"):
-            response = response[:-3]
-        response = response.strip()
+        response_clean = response_text.strip()
+        if response_clean.startswith("```json"):
+            response_clean = response_clean[7:]
+        elif response_clean.startswith("```"):
+            response_clean = response_clean[3:]
+        if response_clean.endswith("```"):
+            response_clean = response_clean[:-3]
+        response_clean = response_clean.strip()
         
         # Validate JSON
-        json.loads(response)
-        return response
+        json.loads(response_clean)
+        return response_clean
         
     except Exception as e:
-        logger.error(f"HF API extraction failed: {e}")
+        logger.error(f"OpenAI API extraction failed: {e}")
         raise
 
 def pdf_to_images(pdf_bytes):

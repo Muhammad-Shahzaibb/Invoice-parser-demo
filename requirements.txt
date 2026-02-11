@@ -8,8 +8,9 @@ uvicorn[standard]
 python-dotenv
 python-multipart
 gunicorn
-transformers>=4.45.0
-torch>=2.0.0
-torchvision>=0.15.0
-accelerate
-huggingface_hub
+openai>=1.0.0
+httpx
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
+google-api-python-client>=2.0.0

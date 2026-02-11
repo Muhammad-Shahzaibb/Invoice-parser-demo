@@ -1,8 +1,14 @@
 import asyncio
 import json
+import os
+import base64
+from email.mime.text import MIMEText
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials
+from google.auth import default
 
 from Invoice_extractor import (
     extract_invoice_data,
@@ -31,6 +37,76 @@ from fastapi.responses import JSONResponse
 # SAP Configuration from your Postman collection
 SAP_URL = "https://asd.al-akaria.com/sap/bc/zmiro_post_po?sap-client=110"
 SAP_AUTH = ("ohussain", "Skr@@244343P")
+
+# Gmail Configuration
+GMAIL_SENDER = "muhammadshahzaibb2@gmail.com"
+GMAIL_RECIPIENT = "mahmed@al-akaria.com"
+CREDENTIALS_FILE = "credentials.json"
+TOKEN_FILE = "token.json"
+SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+
+def send_invoice_success_email(invoice_number: str):
+    """
+    Send email notification using Google Gmail API (OAuth2).
+    Uses credentials.json and token.json for authentication.
+    Automatically refreshes expired tokens.
+    """
+    try:
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        from googleapiclient.discovery import build
+        from google.oauth2.credentials import Credentials
+        
+        # Load or create credentials
+        creds = None
+        
+        # Load token.json if it exists (JSON format)
+        if os.path.exists(TOKEN_FILE):
+            try:
+                creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            except Exception as load_error:
+                print(f"Error loading token: {load_error}")
+                creds = None
+        
+        # If no valid credentials, refresh or regenerate
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    print("Token expired, refreshing...")
+                    creds.refresh(Request())
+                    # Save the refreshed credentials as JSON
+                    with open(TOKEN_FILE, 'w') as token:
+                        token.write(creds.to_json())
+                    print("Token refreshed successfully!")
+                except Exception as refresh_error:
+                    return {"email_status": "failed", "error": f"Token refresh failed: {str(refresh_error)}. Please run generate_token.py"}
+            else:
+                # Token missing or invalid - check for credentials.json
+                if not os.path.exists(CREDENTIALS_FILE):
+                    return {"email_status": "failed", "error": f"Missing {CREDENTIALS_FILE}. Download from Google Cloud Console and run generate_token.py"}
+                
+                # Note: This requires user interaction (browser) - not suitable for production server
+                return {"email_status": "failed", "error": "Token missing or invalid. Please run generate_token.py to generate a new token"}
+        
+        # Build Gmail service
+        service = build('gmail', 'v1', credentials=creds)
+        
+        # Create email message
+        message_text = f"Invoice {invoice_number} posted successfully."
+        message = MIMEText(message_text)
+        message['to'] = GMAIL_RECIPIENT
+        message['from'] = GMAIL_SENDER
+        message['subject'] = f"Invoice Posted Successfully - {invoice_number}"
+        
+        # Encode message
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        send_message = {'raw': raw_message}
+        
+        # Send the email
+        service.users().messages().send(userId='me', body=send_message).execute()
+        
+        return {"email_status": "sent", "recipient": GMAIL_RECIPIENT}
+    except Exception as e:
+        return {"email_status": "failed", "error": str(e)}
 
 def format_sap_payload(final_output: dict):
     """
@@ -102,6 +178,14 @@ async def extract_and_transform_invoice(file: UploadFile = File(...)):
             
             # Append the SAP response to your API output
             result["sap_posting_response"] = sap_status
+            
+            # Send email ONLY if SAP posting was successful with a valid invoice number
+            if sap_status and "error" not in sap_status:
+                invoice_number = sap_status.get("invoice", "").strip()
+                # Only send email if invoice number exists and is not empty
+                if invoice_number:
+                    email_result = send_invoice_success_email(invoice_number)
+                    result["email_notification"] = email_result
 
         return JSONResponse(content=result)
 
