@@ -1,0 +1,76 @@
+{
+  "DOC_NO": "1",
+  "REF_DOC_NO": "902",
+  "COMPANY_CODE": "2000",
+  "FISCAL_YEAR": "2026",
+  "FISCAL_PERIOD": "02",
+  "DOCUMENT_DATE": "15.12.2025",
+  "DOC_TYPE": "KR",
+  "HDRTOITEMNAV": [
+    {
+      "DOC_NO": "1",
+      "POSTING_KEY": "31",
+      "LINE_NO": "1",
+      "VENDOR": "23001449",
+      "ACCOUNT": "",
+      "SPECIAL_GL_INDICATOR": "",
+      "AMOUNT": "93773.25",
+      "ORDER": "",
+      "TAX_CODE": "",
+      "TAX": "",
+      "ASSIGNMENT": ""
+    },
+    {
+      "DOC_NO": "1",
+      "POSTING_KEY": "39",
+      "LINE_NO": "2",
+      "VENDOR": "23001449",
+      "ACCOUNT": "",
+      "SPECIAL_GL_INDICATOR": "R",
+      "AMOUNT": "17610.00",
+      "ORDER": "",
+      "TAX_CODE": "",
+      "TAX": "",
+      "ASSIGNMENT": ""
+    },
+    {
+      "DOC_NO": "1",
+      "POSTING_KEY": "39",
+      "LINE_NO": "3",
+      "VENDOR": "23001449",
+      "ACCOUNT": "",
+      "SPECIAL_GL_INDICATOR": "A",
+      "AMOUNT": "79245.00",
+      "ORDER": "",
+      "TAX_CODE": "31",
+      "TAX": "",
+      "ASSIGNMENT": ""
+    },
+    {
+      "DOC_NO": "1",
+      "POSTING_KEY": "40",
+      "LINE_NO": "4",
+      "VENDOR": "",
+      "ACCOUNT": "5114004",
+      "SPECIAL_GL_INDICATOR": "",
+      "AMOUNT": "176100.00",
+      "ORDER": "11200341",
+      "TAX_CODE": "31",
+      "TAX": "",
+      "ASSIGNMENT": ""
+    },
+    {
+      "DOC_NO": "1",
+      "POSTING_KEY": "",
+      "LINE_NO": "5",
+      "VENDOR": "",
+      "ACCOUNT": "1242001",
+      "SPECIAL_GL_INDICATOR": "",
+      "AMOUNT": "14528.25",
+      "ORDER": "",
+      "TAX_CODE": "31",
+      "TAX": "",
+      "ASSIGNMENT": ""
+    }
+  ]
+}

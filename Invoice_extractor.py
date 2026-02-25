@@ -30,7 +30,7 @@ if not OPENAI_API_KEY:
 groq_client = Groq(api_key=GROQ_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-MAX_PAGES = int(os.getenv("MAX_PAGES", 5))
+MAX_PAGES = int(os.getenv("MAX_PAGES", 8))
 
 # -------------------------
 # Helpers
@@ -41,29 +41,48 @@ def encode_image(image_bytes):
 def extract_invoice_data(image_bytes):
     """
     Extract data from a single page image using OpenAI GPT-4o Vision API.
+    Generic extraction that supports multiple document types for different SAP workflows.
     """
     prompt = """You are an expert invoice OCR and document understanding AI.
 Extract all visible information from this image and categorize it by document type.
 The document may contain Arabic, English, or both.
 
-FIRST: Identify what type of document this page contains:
-- "tax_invoice" - Tax Invoice / Invoice / فاتورة ضريبية (contains invoice number / رقم الفاتورة, seller/buyer info, line items with prices, VAT, totals)
-- "purchase_order" - Purchase Order / PO / أمر الشراء (contains PO number, vendor info, ordered items)
-- "gl_document" - GL Document / Accounting Document / مستند محاسبي (contains posting entries, account numbers, debit/credit)
+DOCUMENT TYPES - Identify what type of document this page contains:
+
+1. "tax_invoice" - Tax Invoice / Invoice / فاتورة ضريبية
+   (contains: invoice number, seller/buyer info, line items with prices, VAT, totals)
+
+2. "purchase_order" - Purchase Order / PO / أمر الشراء
+   (contains: PO number, ordered items, quantities. It must conatin PO Number)
+
+3. "gl_document" - GL Document / Accounting Document / مستند محاسبي
+   (contains: posting entries, account numbers, debit/credit)
+
+4. "interim_payment_certificate" - Interim Payment Certificate / IPC / شهادة الدفع المؤقتة
+   (contains: certificate number, project details, work completed, retention amounts, payment due)
+
+5. "invoice_submittal_payment_request" - Invoice Submittal Payment Request Form
+   (contains: request number, contractor info, payment details, work description, amounts)
+
+6. "trial_balance" - Trial Balance / ميزان المراجعة
+   (contains: list of ledger accounts, account codes, debit column, credit column, totals)
 
 REQUIRED OUTPUT FORMAT:
 {
-  "document_type": "tax_invoice" | "purchase_order" | "gl_document",
+  "document_type": "tax_invoice" | "purchase_order" | "gl_document" | "interim_payment_certificate" | "invoice_submittal_payment_request" | "trial_balance",
   "data": {
     // All extracted data from this page goes here
+    // Include ALL fields, numbers, dates, tables, line items exactly as shown
   }
 }
 
 RULES:
-- Identify the document type based on the content
+- Identify the document type based on the content and headers
 - Capture ALL data visible on the page inside "data" object
+- For tables/line items, extract each row with all columns
 - Do not invent or translate values
 - Preserve original text exactly (Arabic and English)
+- Extract all amounts, percentages, dates, reference numbers
 - Return ONE valid JSON object only
 - No explanations, no markdown
 
@@ -98,7 +117,7 @@ Return the JSON object only."""
         )
         
         response_text = response.choices[0].message.content
-
+         
         # Clean response and extract JSON
         response_clean = response_text.strip()
         if response_clean.startswith("```json"):
@@ -151,10 +170,16 @@ def pdf_to_base64_images(pdf_bytes):
     return pages_base64, pages_images
 
 
-def transform_to_final_json(extracted_data: dict) -> dict:
+def transform_to_sap_po_json(extracted_data: dict) -> dict:
     """
-    Process extracted JSON through Groq LLM to generate
-    the final structured output with required fields.
+    SAP PURCHASE ORDER WORKFLOW TRANSFORMATION
+    
+    Process extracted JSON through Groq LLM to generate the final structured output
+    for SAP Purchase Order posting (MIRO API).
+    
+    This is specific to SAP PO workflow. For other workflows (e.g., SAP Retention),
+    create a separate transformation function.
+    
     Uses llama-3.3-70b-versatile model for fast processing.
     """
     import random
@@ -243,29 +268,230 @@ Return the transformed JSON object only."""
         raise
 
 
+def transform_to_sap_retention_json(extracted_data: dict) -> dict:
+    """
+    SAP RETENTION WORKFLOW TRANSFORMATION (F-43 API)
+    
+    Process extracted JSON through Groq LLM to generate the final structured output
+    for SAP Retention posting (F-43 API).
+    
+    This is specific to SAP Retention workflow for invoices WITHOUT Purchase Orders.
+    Extracts data from:
+    - Tax Invoice (last page - contains amounts)
+    - Invoice Submittal Payment Request Form (contains vendor info)
+    - Interim Payment Certificate (if present)
+    
+    Uses llama-3.3-70b-versatile model for fast processing.
+    """
+    import datetime
+    
+    prompt = f"""You are a data transformation expert specializing in SAP Retention invoices. Analyze the following extracted invoice data and transform it into the exact JSON structure required for SAP F-43 API.
+
+There are two types of Retention cases:
+1. Simple Retention: No advance payment.
+2. Advance & Retention: Contains an advance payment(Recovery of Advance Payment).
+
+EXTRACTED DATA:
+{json.dumps(extracted_data, indent=2, ensure_ascii=False)}
+
+REQUIRED OUTPUT FORMAT:
+{{
+  "DOC_NO": "1",
+  "REF_DOC_NO": "",
+  "COMPANY_CODE": "2000",
+  "FISCAL_YEAR": "{datetime.datetime.now().year}",
+  "FISCAL_PERIOD": "{datetime.datetime.now().strftime('%m')}",
+  "DOCUMENT_DATE": "DD.MM.YYYY",
+  "DOC_TYPE": "KR",
+  "HDRTOITEMNAV": [
+    // Array of line items (4 or 5 depending on case)
+  ]
+}}
+
+TRANSFORMATION RULES:
+
+HEADER FIELDS:
+1. DOC_NO: Always "1" (fixed)
+2. REF_DOC_NO: Extract invoice number from tax_invoice (look for: Invoice No, رقم الفاتورة, Invoice Number, Ref)
+3. COMPANY_CODE: Always "2000" (fixed)
+4. FISCAL_YEAR: Current year ({datetime.datetime.now().year})
+5. FISCAL_PERIOD: Current month as 2-digit string ({datetime.datetime.now().strftime('%m')} - January="01", February="02", etc.)
+6. DOCUMENT_DATE: Extract date from tax_invoice and convert to DD.MM.YYYY format (e.g., "23.12.2024")
+7. DOC_TYPE: Always "KR" (fixed)
+
+LINE ITEMS LOGIC:
+Extract amounts from the LAST PAGE of tax_invoice.
+Look for "Advance Payment" or "Advance" (دفعات مقدمة) in the description table.
+- If Advance Payment is found and is NOT zero -> Generate 5 line items.
+- If Advance Payment is NOT found -> Generate 4 line items.
+
+LINE 1 - Vendor/Net Payable Line:
+- DOC_NO: "1"
+- POSTING_KEY: "31" (hardcoded)
+- LINE_NO: "1"
+- VENDOR: Extract vendor/supplier number from "invoice_submittal_payment_request" document (look for: vendor code, supplier code, supplier number, رقم المورد)
+- ACCOUNT: "" (empty)
+- SPECIAL_GL_INDICATOR: "" (empty)
+- AMOUNT: Net payable amount from tax_invoice (look for: صافي المبلغ المستحق, Net Payable, net amount after retention and advance)
+- ORDER: "" (empty)
+- TAX_CODE: "" (empty)
+- TAX: "" (empty)
+- ASSIGNMENT: "" (empty)
+
+LINE 2 - Retention Line:
+- DOC_NO: "1"
+- POSTING_KEY: "39"  (hardcoded)
+- LINE_NO: "2"
+- VENDOR: Same vendor number as Line 1
+- ACCOUNT: "" (empty)
+- SPECIAL_GL_INDICATOR: "R" (hardcoded for retention)
+- AMOUNT: Retention amount from tax_invoice (look for: خصم ضمان الأعمال, retention, 10% retention, ضمان 10%, خصم 10 % ضمان الأعمال)
+- ORDER: "" (empty)
+- TAX_CODE: "" (empty)
+- TAX: "" (empty)
+- ASSIGNMENT: "" (empty)
+
+LINE 3 (ONLY FOR ADVANCE CASE) - Advance Payment Line:
+- ONLY include this if advance payment > 0.
+- DOC_NO: "1"
+- POSTING_KEY: "39"  (hardcoded)        
+- LINE_NO: "3"
+- VENDOR: Same vendor number as Line 1
+- ACCOUNT: "" (empty)
+- SPECIAL_GL_INDICATOR: "A" (hardcoded for advance)
+- AMOUNT: Advance payment amount from tax_invoice description table (look for: دفعات مقدمة, Advance, Advance Payment)
+- ORDER: "" (empty)
+- TAX_CODE: "31" (hardcoded)
+- TAX: "" (empty)
+- ASSIGNMENT: "" (empty)
+
+NEXT LINE (3rd if no advance, 4th if advance) - Expense/Gross Amount Line:
+- DOC_NO: "1"
+- POSTING_KEY: "40" (hardcoded)
+- LINE_NO: Next sequential number
+- VENDOR: "" (empty)
+- ACCOUNT: "5114004" (hardcoded)
+- SPECIAL_GL_INDICATOR: "" (empty)
+- AMOUNT: If simple Retention case, then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
+- ORDER: "11200341" (hardcoded)
+- TAX_CODE: "31" (hardcoded)
+- TAX: "" (empty)
+- ASSIGNMENT: "" (empty)
+
+LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
+- DOC_NO: "1"
+- POSTING_KEY: "" (empty)
+- LINE_NO: Next sequential number
+- VENDOR: "" (empty)
+- ACCOUNT: "1242001" (hardcoded)
+- SPECIAL_GL_INDICATOR: "" (empty)
+- AMOUNT: VAT/Tax amount from tax_invoice (look for: ضريبة القيمة المضافة, VAT amount, tax amount, 15% tax, ضريبة 15%)
+- ORDER: "" (empty)
+- TAX_CODE: "31" (hardcoded)
+- TAX: "" (empty)
+- ASSIGNMENT: "" (empty)
+
+IMPORTANT NOTES:
+1. Extract amounts from the LAST PAGE of tax_invoice. For Gross Amount's Line item, If simple retention case then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
+2. Remove commas from all amounts (e.g., "46,373.61" → "46373.61")
+3. Keep empty fields as empty strings "", not null
+4. Date format must be DD.MM.YYYY (e.g., "23.12.2024")
+5. Return ONLY valid JSON, no explanations
+
+Return the transformed JSON object only."""
+
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        
+        result = json.loads(completion.choices[0].message.content)
+        
+        # Ensure fixed values are correct
+        result["DOC_NO"] = "1"
+        result["COMPANY_CODE"] = "2000"
+        result["FISCAL_YEAR"] = str(datetime.datetime.now().year)
+        result["FISCAL_PERIOD"] = datetime.datetime.now().strftime("%m")  # Current month: 01-12
+        result["DOC_TYPE"] = "KR"
+        
+        # Ensure HDRTOITEMNAV has correct structure and hardcoded values
+        if "HDRTOITEMNAV" in result and isinstance(result["HDRTOITEMNAV"], list):
+            items = result["HDRTOITEMNAV"]
+            num_items = len(items)
+            
+            for i, item in enumerate(items):
+                item["DOC_NO"] = "1"
+                item["LINE_NO"] = str(i + 1)
+                
+                # Line 2: Retention line
+                if i == 1:
+                    item["ACCOUNT"] = ""
+                    item["SPECIAL_GL_INDICATOR"] = "R"
+                
+                # If 5 items, Line 3 is Advance line
+                if num_items == 5:
+                    if i == 2:
+                        item["ACCOUNT"] = ""
+                        item["SPECIAL_GL_INDICATOR"] = "A"
+                        item["TAX_CODE"] = "31"
+                    elif i == 3: # Expense line
+                        item["ACCOUNT"] = "5114004"
+                        item["ORDER"] = "11200341"
+                        item["TAX_CODE"] = "31"
+                        item["VENDOR"] = ""
+                        item["SPECIAL_GL_INDICATOR"] = ""
+                    elif i == 4: # VAT line
+                        item["ACCOUNT"] = "1242001"
+                        item["TAX_CODE"] = "31"
+                        item["VENDOR"] = ""
+                        item["SPECIAL_GL_INDICATOR"] = ""
+                else:
+                    # Original 4-item logic
+                    if i == 2: # Expense line
+                        item["ACCOUNT"] = "5114004"
+                        item["ORDER"] = "11200341"
+                        item["TAX_CODE"] = "31"
+                        item["VENDOR"] = ""
+                        item["SPECIAL_GL_INDICATOR"] = ""
+                    elif i == 3: # VAT line
+                        item["ACCOUNT"] = "1242001"
+                        item["TAX_CODE"] = "31"
+                        item["VENDOR"] = ""
+                        item["SPECIAL_GL_INDICATOR"] = ""
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Groq SAP Retention transformation failed: {e}")
+        raise
+
+
 def extract_all_pages(pdf_bytes):
     """
-    Process PDF and extract OCR data using Qwen model, grouped by document type.
-    Layer 1 extracts each page with document type identification,
-    then merges pages of the same document type using code logic.
+    Generic PDF extraction that supports multiple document types.
+    Dynamically categorizes pages by document type and merges multi-page documents.
     
-    Returns data grouped as: tax_invoice, purchase_order, gl_document
+    Supports:
+    - tax_invoice (Tax Invoice / فاتورة ضريبية)
+    - purchase_order (Purchase Order / أمر الشراء)
+    - gl_document (GL Document / مستند محاسبي)
+    - interim_payment_certificate (IPC / شهادة الدفع المؤقتة)
+    - invoice_submittal_payment_request (Invoice Submittal Payment Request Form)
+    
+    Returns: Dictionary with:
+        - document types as keys with extracted data as values
+        - "workflow_type" key indicating which SAP workflow to use
     """
     pages_images = pdf_to_images(pdf_bytes)
     
-    # Initialize document type containers
-    result = {
-        "tax_invoice": None,
-        "purchase_order": None,
-        "gl_document": None
-    }
-    
-    # Track pages for each document type (for merging multi-page docs)
-    doc_pages = {
-        "tax_invoice": [],
-        "purchase_order": [],
-        "gl_document": []
-    }
+    # Dynamic tracking of document pages (supports any document type)
+    doc_pages = {}
     
     # Extract each page and categorize by document type
     for i, img_bytes in enumerate(pages_images):
@@ -274,32 +500,26 @@ def extract_all_pages(pdf_bytes):
             page_data = json.loads(raw_json)
             
             # Get document type from extraction
-            doc_type = page_data.get("document_type", "").lower()
+            doc_type = page_data.get("document_type", "").lower().strip()
             data = page_data.get("data", page_data)
             
-            # Map to our standard document types
-            if doc_type in ["tax_invoice", "invoice"]:
-                doc_pages["tax_invoice"].append(data)
-            elif doc_type in ["purchase_order", "po"]:
-                doc_pages["purchase_order"].append(data)
-            elif doc_type in ["gl_document", "accounting_document"]:
-                doc_pages["gl_document"].append(data)
-            else:
-                # Try to infer document type from data content
-                data_str = json.dumps(data).lower()
-                if any(kw in data_str for kw in ["فاتورة", "invoice", "vat", "ضريب"]):
-                    doc_pages["tax_invoice"].append(data)
-                elif any(kw in data_str for kw in ["purchase order", "po number", "أمر الشراء"]):
-                    doc_pages["purchase_order"].append(data)
-                elif any(kw in data_str for kw in ["gl", "posting", "debit", "credit", "مستند"]):
-                    doc_pages["gl_document"].append(data)
-                    
-            logger.info(f"Page {i+1}: Identified as {doc_type or 'unknown'}")
+            # Normalize document type names
+            doc_type_normalized = normalize_document_type(doc_type, data)
+            
+            # Initialize list for this document type if first occurrence
+            if doc_type_normalized not in doc_pages:
+                doc_pages[doc_type_normalized] = []
+            
+            # Add page data to the appropriate document type
+            doc_pages[doc_type_normalized].append(data)
+            
+            logger.info(f"Page {i+1}: Identified as '{doc_type_normalized}'")
             
         except Exception as e:
             logger.error(f"Failed to extract page {i+1}: {e}")
     
     # Merge pages for each document type
+    result = {}
     for doc_type, pages in doc_pages.items():
         if len(pages) == 0:
             result[doc_type] = None
@@ -309,7 +529,79 @@ def extract_all_pages(pdf_bytes):
             # Merge multiple pages of the same document type
             result[doc_type] = merge_document_pages(pages)
     
+    # Classify workflow based on extracted documents
+    workflow_type = classify_workflow(result)
+    result["workflow_type"] = workflow_type
+    
+    logger.info(f"Classified workflow: {workflow_type}")
+    
     return result
+
+
+def normalize_document_type(doc_type: str, data: dict) -> str:
+    """
+    Normalize and validate document type.
+    Falls back to content-based inference if type is unclear.
+    """
+    # Normalize common variations
+    type_mappings = {
+        "invoice": "tax_invoice",
+        "po": "purchase_order",
+        "accounting_document": "gl_document",
+        "ipc": "interim_payment_certificate",
+    }
+    
+    normalized = type_mappings.get(doc_type, doc_type)
+    
+    # If type is still unclear, try to infer from content
+    if normalized not in ["tax_invoice", "purchase_order", "gl_document", 
+                          "interim_payment_certificate", "invoice_submittal_payment_request"]:
+        data_str = json.dumps(data).lower()
+        
+        # Content-based inference
+        if any(kw in data_str for kw in ["interim", "ipc", "payment certificate", "شهادة الدفع"]):
+            return "interim_payment_certificate"
+        elif any(kw in data_str for kw in ["submittal", "payment request", "طلب دفع"]):
+            return "invoice_submittal_payment_request"
+        elif any(kw in data_str for kw in ["فاتورة", "invoice", "vat", "ضريب"]):
+            return "tax_invoice"
+        elif any(kw in data_str for kw in ["purchase order", "po number", "أمر الشراء"]):
+            return "purchase_order"
+        elif any(kw in data_str for kw in ["gl", "posting", "debit", "credit", "مستند"]):
+            return "gl_document"
+        else:
+            return "unknown"
+    
+    return normalized
+
+
+def classify_workflow(extracted_data: dict) -> str:
+    """
+    Automatically classify which SAP workflow to use based on extracted documents.
+    
+    Classification Logic:
+    - If Purchase Order (PO) document exists → "sap_po" (SAP Purchase Order workflow)
+    - If NO Purchase Order → "sap_retention" (SAP Retention workflow)
+    
+    Args:
+        extracted_data: Dictionary with document types as keys
+    
+    Returns:
+        "sap_po" or "sap_retention"
+    """
+    # Check if purchase_order document exists and has data
+    has_purchase_order = (
+        "purchase_order" in extracted_data and 
+        extracted_data["purchase_order"] is not None and
+        extracted_data["purchase_order"] != {}
+    )
+    
+    if has_purchase_order:
+        logger.info("Purchase Order detected → Using SAP PO workflow")
+        return "sap_po"
+    else:
+        logger.info("No Purchase Order detected → Using SAP Retention workflow")
+        return "sap_retention"
 
 
 def merge_document_pages(pages: list) -> dict:
@@ -347,38 +639,83 @@ def merge_document_pages(pages: list) -> dict:
 
 def remove_amount_separators(result: dict) -> dict:
     """
-    Remove comma separators from grossAmount and itemAmount fields.
+    Remove comma separators from amount fields in both SAP PO and SAP Retention formats.
     Converts amounts like "23,000" to "23000"
+    
+    Handles:
+    - SAP PO: grossAmount, itemAmount in "item" array
+    - SAP Retention: AMOUNT in "HDRTOITEMNAV" array
     """
-    # Remove comma from grossAmount
+    # SAP PO format: Remove comma from grossAmount
     if "grossAmount" in result and result["grossAmount"]:
         result["grossAmount"] = str(result["grossAmount"]).replace(",", "")
     
-    # Remove comma from itemAmount in each item
+    # SAP PO format: Remove comma from itemAmount in each item
     if "item" in result and isinstance(result["item"], list):
         for item in result["item"]:
             if "itemAmount" in item and item["itemAmount"]:
                 item["itemAmount"] = str(item["itemAmount"]).replace(",", "")
     
+    # SAP Retention format: Remove comma from AMOUNT in HDRTOITEMNAV
+    if "HDRTOITEMNAV" in result and isinstance(result["HDRTOITEMNAV"], list):
+        for item in result["HDRTOITEMNAV"]:
+            if "AMOUNT" in item and item["AMOUNT"]:
+                item["AMOUNT"] = str(item["AMOUNT"]).replace(",", "")
+    
     return result
 
 
-def extract_and_transform(pdf_bytes):
+# ===============================================================================
+# TRANSFORMATION FUNCTIONS - Add new functions here for different SAP workflows
+# ===============================================================================
+
+def transform_to_final_json(extracted_data: dict) -> dict:
     """
-    Complete pipeline (2 Layers):
-    - Layer 1: Extract all pages with Qwen model & merge by type
-    - Layer 2: Transform to final structured JSON using Groq
+    BACKWARD COMPATIBILITY WRAPPER
+    
+    Maintains compatibility with existing code. Calls SAP PO transformation by default.
+    For new workflows, call the specific transformation function directly.
     """
-    # Layer 1: Extract and group by document type using Qwen
+    return transform_to_sap_po_json(extracted_data)
+
+
+def extract_and_transform(pdf_bytes, workflow=None):
+    """
+    Complete pipeline for invoice processing with AUTOMATIC workflow detection:
+    - Layer 1: Extract all pages with OpenAI GPT-4o & merge by document type
+    - Layer 2: Automatically classify workflow (sap_po or sap_retention)
+    - Layer 3: Transform to final structured JSON based on detected workflow
+    - Layer 4: Clean up amount separators
+    
+    Args:
+        pdf_bytes: PDF file as bytes
+        workflow: Optional workflow override - "sap_po" or "sap_retention"
+                 If None, workflow is auto-detected based on documents
+    
+    Returns:
+        Dictionary with raw_extraction, workflow_type, and final_output
+    """
+    # Layer 1: Extract and group by document type (GENERIC - works for all workflows)
     extracted_data = extract_all_pages(pdf_bytes)
     
-    # Layer 2: Transform extracted data to final format using Groq
-    final_json = transform_to_final_json(extracted_data)
+    # Layer 2: Get workflow type (either from auto-classification or manual override)
+    workflow_type = workflow if workflow else extracted_data.get("workflow_type", "sap_po")
     
-    # Layer 3: Clean up amount separators
+    logger.info(f"Using workflow: {workflow_type}")
+    
+    # Layer 3: Transform based on workflow type
+    if workflow_type == "sap_po":
+        final_json = transform_to_sap_po_json(extracted_data)
+    elif workflow_type == "sap_retention":
+        final_json = transform_to_sap_retention_json(extracted_data)
+    else:
+        raise ValueError(f"Unknown workflow type: {workflow_type}")
+    
+    # Layer 4: Clean up amount separators
     final_json = remove_amount_separators(final_json)
     
     return {
         "raw_extraction": extracted_data,
+        "workflow_type": workflow_type,
         "final_output": final_json
     }
