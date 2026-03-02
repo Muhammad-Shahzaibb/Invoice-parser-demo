@@ -1,9 +1,9 @@
 {
   "DOC_NO": "1",
-  "REF_DOC_NO": "902",
+  "REF_DOC_NO": "",
   "COMPANY_CODE": "2000",
   "FISCAL_YEAR": "2026",
-  "FISCAL_PERIOD": "02",
+  "FISCAL_PERIOD": "03",
   "DOCUMENT_DATE": "15.12.2025",
   "DOC_TYPE": "KR",
   "HDRTOITEMNAV": [
@@ -18,7 +18,8 @@
       "ORDER": "",
       "TAX_CODE": "",
       "TAX": "",
-      "ASSIGNMENT": ""
+      "ASSIGNMENT": "GCR6/CRT/ARC/010",
+      "WBS_ELEMENT": ""
     },
     {
       "DOC_NO": "1",
@@ -31,7 +32,8 @@
       "ORDER": "",
       "TAX_CODE": "",
       "TAX": "",
-      "ASSIGNMENT": ""
+      "ASSIGNMENT": "GCR6/CRT/ARC/010",
+      "WBS_ELEMENT": ""
     },
     {
       "DOC_NO": "1",
@@ -44,7 +46,8 @@
       "ORDER": "",
       "TAX_CODE": "31",
       "TAX": "",
-      "ASSIGNMENT": ""
+      "ASSIGNMENT": "GCR6/CRT/ARC/010",
+      "WBS_ELEMENT": ""
     },
     {
       "DOC_NO": "1",
@@ -54,10 +57,11 @@
       "ACCOUNT": "5114004",
       "SPECIAL_GL_INDICATOR": "",
       "AMOUNT": "176100.00",
-      "ORDER": "11200341",
+      "ORDER": "",
       "TAX_CODE": "31",
       "TAX": "",
-      "ASSIGNMENT": ""
+      "ASSIGNMENT": "GCR6/CRT/ARC/010",
+      "WBS_ELEMENT": "TM-GT6-02-06"
     },
     {
       "DOC_NO": "1",
@@ -70,7 +74,8 @@
       "ORDER": "",
       "TAX_CODE": "31",
       "TAX": "",
-      "ASSIGNMENT": ""
+      "ASSIGNMENT": "GCR6/CRT/ARC/010",
+      "WBS_ELEMENT": ""
     }
   ]
 }

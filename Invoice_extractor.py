@@ -50,7 +50,7 @@ The document may contain Arabic, English, or both.
 DOCUMENT TYPES - Identify what type of document this page contains:
 
 1. "tax_invoice" - Tax Invoice / Invoice / فاتورة ضريبية
-   (contains: invoice number, seller/buyer info, line items with prices, VAT, totals)
+   (contains: invoice number(extract number), seller/buyer info, line items with prices, VAT, totals)
 
 2. "purchase_order" - Purchase Order / PO / أمر الشراء
    (contains: PO number, ordered items, quantities. It must conatin PO Number)
@@ -336,7 +336,8 @@ LINE 1 - Vendor/Net Payable Line:
 - ORDER: "" (empty)
 - TAX_CODE: "" (empty)
 - TAX: "" (empty)
-- ASSIGNMENT: "" (empty)
+- ASSIGNMENT: "" Extract Contract Number From Interim payment Certificate(IPC)
+- WBS_ELEMENT: "" (empty)
 
 LINE 2 - Retention Line:
 - DOC_NO: "1"
@@ -349,7 +350,8 @@ LINE 2 - Retention Line:
 - ORDER: "" (empty)
 - TAX_CODE: "" (empty)
 - TAX: "" (empty)
-- ASSIGNMENT: "" (empty)
+- ASSIGNMENT: "" Same as Line item 1  
+- WBS_ELEMENT: "" (empty)
 
 LINE 3 (ONLY FOR ADVANCE CASE) - Advance Payment Line:
 - ONLY include this if advance payment > 0.
@@ -363,20 +365,23 @@ LINE 3 (ONLY FOR ADVANCE CASE) - Advance Payment Line:
 - ORDER: "" (empty)
 - TAX_CODE: "31" (hardcoded)
 - TAX: "" (empty)
-- ASSIGNMENT: "" (empty)
+- ASSIGNMENT: "" Same as Line item 1
+- WBS_ELEMENT: "" (empty)
 
 NEXT LINE (3rd if no advance, 4th if advance) - Expense/Gross Amount Line:
 - DOC_NO: "1"
 - POSTING_KEY: "40" (hardcoded)
 - LINE_NO: Next sequential number
 - VENDOR: "" (empty)
-- ACCOUNT: "5114004" (hardcoded)
+- ACCOUNT: "5114004" 
 - SPECIAL_GL_INDICATOR: "" (empty)
 - AMOUNT: If simple Retention case, then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
-- ORDER: "11200341" (hardcoded)
+- ORDER: "11200341" (It will be empty if its advance case. If retention case and its 3rd line item it will be hardcoded)
 - TAX_CODE: "31" (hardcoded)
 - TAX: "" (empty)
-- ASSIGNMENT: "" (empty)
+- ASSIGNMENT: "" Same as Line item 1
+- WBS_ELEMENT: "TM-GT6-02-06" (It will be empty if its simple retention case(no advance) otherwise hardcoded. If retention case and its 3rd line item it will empty)
+- SPECIAL_GL_INDICATOR: "" (empty)
 
 LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
 - DOC_NO: "1"
@@ -389,14 +394,17 @@ LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
 - ORDER: "" (empty)
 - TAX_CODE: "31" (hardcoded)
 - TAX: "" (empty)
-- ASSIGNMENT: "" (empty)
+- ASSIGNMENT: "" Same as Line item 1
+- WBS_ELEMENT: "" (empty)
 
 IMPORTANT NOTES:
 1. Extract amounts from the LAST PAGE of tax_invoice. For Gross Amount's Line item, If simple retention case then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
-2. Remove commas from all amounts (e.g., "46,373.61" → "46373.61")
-3. Keep empty fields as empty strings "", not null
-4. Date format must be DD.MM.YYYY (e.g., "23.12.2024")
-5. Return ONLY valid JSON, no explanations
+2. WBS_ELEMENT is hardcoded only in advance's case 4th line item and then in that scenario order will be empty in that 4th line item
+3. Remove commas from all amounts (e.g., "46,373.61" → "46373.61")
+4. Keep empty fields as empty strings "", not null
+5. Date format must be DD.MM.YYYY (e.g., "23.12.2024")
+6. Extract all the amounts from the tax invoice keys and values.
+7. Return ONLY valid JSON, no explanations
 
 Return the transformed JSON object only."""
 
@@ -442,7 +450,7 @@ Return the transformed JSON object only."""
                         item["TAX_CODE"] = "31"
                     elif i == 3: # Expense line
                         item["ACCOUNT"] = "5114004"
-                        item["ORDER"] = "11200341"
+                        item["ORDER"] = ""
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
                         item["SPECIAL_GL_INDICATOR"] = ""
