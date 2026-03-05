@@ -50,7 +50,7 @@ The document may contain Arabic, English, or both.
 DOCUMENT TYPES - Identify what type of document this page contains:
 
 1. "tax_invoice" - Tax Invoice / Invoice / فاتورة ضريبية
-   (contains: invoice number(extract number), seller/buyer info, line items with prices, VAT, totals)
+   (contains: invoice number(extract number), seller/buyer info, line items with prices, VAT, totals, Payment Summary Table)
 
 2. "purchase_order" - Purchase Order / PO / أمر الشراء
    (contains: PO number, ordered items, quantities. It must conatin PO Number)
@@ -59,10 +59,10 @@ DOCUMENT TYPES - Identify what type of document this page contains:
    (contains: posting entries, account numbers, debit/credit)
 
 4. "interim_payment_certificate" - Interim Payment Certificate / IPC / شهادة الدفع المؤقتة
-   (contains: certificate number, project details, work completed, retention amounts, payment due)
+   (contains: IPC No, project details, Contractor, Contract No)
 
 5. "invoice_submittal_payment_request" - Invoice Submittal Payment Request Form
-   (contains: request number, contractor info, payment details, work description, amounts)
+   (contains: Request Person/Department, Description/Scope of work, Supplier Code)
 
 6. "trial_balance" - Trial Balance / ميزان المراجعة
    (contains: list of ledger accounts, account codes, debit column, credit column, totals)
@@ -267,6 +267,51 @@ Return the transformed JSON object only."""
         logger.error(f"Groq transformation failed: {e}")
         raise
 
+def detect_retention_case(extracted_data: dict) -> str:
+    """
+    Openai Layer:
+    Detect whether the invoice is:
+    - simple_retention
+    - advance_retention
+
+    Uses ONLY tax_invoice data (especially the payment summary table).
+    """
+
+    # Extract only tax invoice portion
+    tax_invoice_data = extracted_data.get("tax_invoice", {})
+    print(tax_invoice_data)
+
+    prompt = f"""
+Determine the retention case type from the TAX INVOICE data only.
+
+Cases:
+1. simple_retention → No advance payment OR advance payment = 0
+2. advance_retention → Advance payment OR Recovery of Advance Payment > 0
+
+Look ONLY inside the tax invoice payment summary table.
+
+Return ONLY one value:
+simple_retention
+or
+advance_retention
+
+TAX INVOICE DATA:
+{json.dumps(tax_invoice_data, indent=2, ensure_ascii=False)}
+"""
+
+    completion = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+
+    case = completion.choices[0].message.content.strip().lower()
+
+    if "advance" in case:
+        return "advance_retention"
+
+    return "simple_retention"
+
 
 def transform_to_sap_retention_json(extracted_data: dict) -> dict:
     """
@@ -284,15 +329,26 @@ def transform_to_sap_retention_json(extracted_data: dict) -> dict:
     Uses llama-3.3-70b-versatile model for fast processing.
     """
     import datetime
+
+    case_type = detect_retention_case(extracted_data)
+    case_hint = f"\nRETENTION CASE TYPE DETECTED: {case_type}\n"
+    print(case_type)
+
+    allowed_data = {
+    "tax_invoice": extracted_data.get("tax_invoice", {}),
+    "supplier_code from invoice_submittal_payment_request": extracted_data.get("invoice_submittal_payment_request", {}).get("Supplier Code (SAP)", ""),
+    "contract_number from interim payment certificate": extracted_data.get("interim_payment_certificate", {}).get("Contract Number", "")
+}
+    print(allowed_data)
     
-    prompt = f"""You are a data transformation expert specializing in SAP Retention invoices. Analyze the following extracted invoice data and transform it into the exact JSON structure required for SAP F-43 API.
+    prompt = case_hint + f"""You are a data transformation expert specializing in SAP Retention invoices. Analyze the following extracted invoice data and transform it into the exact JSON structure required for SAP F-43 API.
 
 There are two types of Retention cases:
-1. Simple Retention: No advance payment.
-2. Advance & Retention: Contains an advance payment(Recovery of Advance Payment).
+1. Simple Retention: No advance payment. 4 line items will be generated in this case
+2. Advance Retention: Contains an advance payment not equal to zero(Recovery of Advance Payment not equal to zero). 5 line items will be generated in this case
 
 EXTRACTED DATA:
-{json.dumps(extracted_data, indent=2, ensure_ascii=False)}
+{json.dumps(allowed_data, indent=2, ensure_ascii=False)}
 
 REQUIRED OUTPUT FORMAT:
 {{
@@ -308,6 +364,7 @@ REQUIRED OUTPUT FORMAT:
   ]
 }}
 
+
 TRANSFORMATION RULES:
 
 HEADER FIELDS:
@@ -320,10 +377,8 @@ HEADER FIELDS:
 7. DOC_TYPE: Always "KR" (fixed)
 
 LINE ITEMS LOGIC:
-Extract amounts from the LAST PAGE of tax_invoice.
-Look for "Advance Payment" or "Advance" (دفعات مقدمة) in the description table.
-- If Advance Payment is found and is NOT zero -> Generate 5 line items.
-- If Advance Payment is NOT found -> Generate 4 line items.
+Extract amounts from the LAST PAGE of tax_invoice from the payment summary table.
+If advance retention case then 5 line items otherwise 4 line items if simple retention case(Use Detected case as defined).
 
 LINE 1 - Vendor/Net Payable Line:
 - DOC_NO: "1"
@@ -380,7 +435,7 @@ NEXT LINE (3rd if no advance, 4th if advance) - Expense/Gross Amount Line:
 - TAX_CODE: "31" (hardcoded)
 - TAX: "" (empty)
 - ASSIGNMENT: "" Same as Line item 1
-- WBS_ELEMENT: "TM-GT6-02-06" (It will be empty if its simple retention case(no advance) otherwise hardcoded. If retention case and its 3rd line item it will empty)
+- WBS_ELEMENT: "TM-GT6-02-06" (It will be empty if its simple retention case(no advance_retention) otherwise hardcoded. If simple_retention case and its 3rd line item it will empty)
 - SPECIAL_GL_INDICATOR: "" (empty)
 
 LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
@@ -398,23 +453,26 @@ LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
 - WBS_ELEMENT: "" (empty)
 
 IMPORTANT NOTES:
-1. Extract amounts from the LAST PAGE of tax_invoice. For Gross Amount's Line item, If simple retention case then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
+- All amounts should be positive(Recovery of adv payment and deduction of retention)
+1. Extract amounts from the LAST PAGE of tax_invoice. For Gross Amount's Line item, If simple retention case then Gross amount before VAT from tax_invoice (look for: إجمالي المبلغ غير المضاف له القيمة المضافة, gross amount, amount before VAT, subtotal before tax). If advance_retention case, then Value of Work Executed Against Original Contract will be consider as Gross Amount.
 2. WBS_ELEMENT is hardcoded only in advance's case 4th line item and then in that scenario order will be empty in that 4th line item
 3. Remove commas from all amounts (e.g., "46,373.61" → "46373.61")
 4. Keep empty fields as empty strings "", not null
 5. Date format must be DD.MM.YYYY (e.g., "23.12.2024")
-6. Extract all the amounts from the tax invoice keys and values.
+6. Extract all the amounts from the tax invoice keys.
 7. Return ONLY valid JSON, no explanations
 
 Return the transformed JSON object only."""
 
     try:
-        completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
                 "role": "user",
                 "content": prompt
-            }],
+            }
+            ],
             temperature=0.1,
             response_format={"type": "json_object"},
         )
@@ -444,6 +502,7 @@ Return the transformed JSON object only."""
                 
                 # If 5 items, Line 3 is Advance line
                 if num_items == 5:
+                    result["REF_DOC_NO"]="902"
                     if i == 2:
                         item["ACCOUNT"] = ""
                         item["SPECIAL_GL_INDICATOR"] = "A"
@@ -454,6 +513,7 @@ Return the transformed JSON object only."""
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
                         item["SPECIAL_GL_INDICATOR"] = ""
+                        item["WBS_ELEMENT"] = "TM-GT6-02-06"
                     elif i == 4: # VAT line
                         item["ACCOUNT"] = "1242001"
                         item["TAX_CODE"] = "31"
@@ -467,6 +527,7 @@ Return the transformed JSON object only."""
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
                         item["SPECIAL_GL_INDICATOR"] = ""
+                        item["WBS_ELEMENT"] = ""
                     elif i == 3: # VAT line
                         item["ACCOUNT"] = "1242001"
                         item["TAX_CODE"] = "31"
