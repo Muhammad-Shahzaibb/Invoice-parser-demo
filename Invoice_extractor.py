@@ -448,7 +448,7 @@ LAST LINE (4th if no advance, 5th if advance) - VAT/Tax Line:
 - AMOUNT: VAT/Tax amount from tax_invoice (look for: ضريبة القيمة المضافة, VAT amount, tax amount, 15% tax, ضريبة 15%)
 - ORDER: "" (empty)
 - TAX_CODE: "31" (hardcoded)
-- TAX: "" (empty)
+- TAX: "X" (hardcoded)
 - ASSIGNMENT: "" Same as Line item 1
 - WBS_ELEMENT: "" (empty)
 
