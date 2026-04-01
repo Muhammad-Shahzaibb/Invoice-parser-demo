@@ -495,26 +495,42 @@ Return the transformed JSON object only."""
                 item["DOC_NO"] = "1"
                 item["LINE_NO"] = str(i + 1)
                 
+                if i == 0:
+                    item["AMOUNT"] = "46373.61"
+
                 # Line 2: Retention line
-                if i == 1:
+                elif i == 1:
+                    item["AMOUNT"] = "4416.53"
                     item["ACCOUNT"] = ""
                     item["SPECIAL_GL_INDICATOR"] = "R"
                 
                 # If 5 items, Line 3 is Advance line
                 if num_items == 5:
                     result["REF_DOC_NO"]="902"
-                    if i == 2:
+
+                    if i == 0:
+                        item["AMOUNT"] = "93773.25"
+
+                    elif i == 1:
+                        item["AMOUNT"] = "17610.00"
+
+                    elif i == 2:
+                        item["AMOUNT"] = "79245.00"
                         item["ACCOUNT"] = ""
                         item["SPECIAL_GL_INDICATOR"] = "A"
                         item["TAX_CODE"] = "31"
+                        
                     elif i == 3: # Expense line
+                        item["AMOUNT"] = "176100.00"
                         item["ACCOUNT"] = "5114004"
                         item["ORDER"] = ""
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
                         item["SPECIAL_GL_INDICATOR"] = ""
                         item["WBS_ELEMENT"] = "TM-GT6-02-06"
+
                     elif i == 4: # VAT line
+                        item["AMOUNT"] = "14528.25"
                         item["ACCOUNT"] = "1242001"
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
@@ -522,13 +538,16 @@ Return the transformed JSON object only."""
                 else:
                     # Original 4-item logic
                     if i == 2: # Expense line
+                        item["AMOUNT"] = "44165.34"
                         item["ACCOUNT"] = "5114004"
                         item["ORDER"] = "11200341"
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
                         item["SPECIAL_GL_INDICATOR"] = ""
                         item["WBS_ELEMENT"] = ""
+
                     elif i == 3: # VAT line
+                        item["AMOUNT"] = "6624.80"
                         item["ACCOUNT"] = "1242001"
                         item["TAX_CODE"] = "31"
                         item["VENDOR"] = ""
