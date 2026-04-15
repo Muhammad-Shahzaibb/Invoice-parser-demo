@@ -8,7 +8,7 @@ import random
 from dotenv import load_dotenv
 from groq import Groq
 from openai import OpenAI
-
+                                                              
 # -------------------------
 # Setup logging
 # -------------------------
